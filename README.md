@@ -81,6 +81,3 @@ To enable your extension, follow these steps:
 2. **Search and enable your extension**:
     - Find your extension under the `Third Party` category.
     - Toggle it to enable your extension.
-
-...
-```
