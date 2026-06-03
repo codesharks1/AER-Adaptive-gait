@@ -134,6 +134,18 @@ class RewardsCfg:
     track_ang_vel_z = RewTerm(
         func=mdp.track_ang_vel_z_exp, weight=1.5, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
     )
+    energy_new_actual = RewTerm(
+    func=mdp.energy_new_actual,
+    weight=0.5,
+    params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            # 这个数值是论文里面给的
+            "sigma_lin": 1000.0,
+            "sigma_ang": 500.0,
+            "clip_lin": 0.2,
+            "clip_ang": 0.2,
+        },
+    )   
     base_linear_velocity = RewTerm(func=mdp.lin_vel_z_l2, weight=-0.05)
     base_angular_velocity = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.001)
     flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=-5.0)
