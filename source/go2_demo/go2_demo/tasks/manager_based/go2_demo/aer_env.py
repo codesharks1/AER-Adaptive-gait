@@ -7,7 +7,7 @@ from isaaclab.managers import CommandManager, CurriculumManager, RewardManager, 
 
 class AERRewardManager(RewardManager):
     positive_terms = {"track_lin_vel_xy", "track_ang_vel_z", "energy_new_actual"}
-    sigma_aux = 0.2
+    sigma_aux = 0.02
 
     def compute(self, dt: float) -> torch.Tensor:
         self._reward_buf[:] = 0.0
@@ -18,18 +18,17 @@ class AERRewardManager(RewardManager):
                 self._step_reward[:, term_idx] = 0.0
                 continue
 
-            value = term_cfg.func(self._env, **term_cfg.params) * term_cfg.weight
-            self._episode_sums[name] += value * dt
-            self._step_reward[:, term_idx] = value
+            value = term_cfg.func(self._env, **term_cfg.params) * term_cfg.weight * dt
+            self._episode_sums[name] += value 
+            self._step_reward[:, term_idx] = value / dt
 
             if name in self.positive_terms:
                 positive_reward += value
             else:
                 negative_reward += value
 
-        self._reward_buf[:] = positive_reward * torch.exp(negative_reward / self.sigma_aux) * dt
+        self._reward_buf[:] = positive_reward * torch.exp(negative_reward / self.sigma_aux)
         return self._reward_buf
-
 class AERManagerBasedRLEnv(ManagerBasedRLEnv):
     def load_managers(self):
         # note: this order is important since observation manager needs to know the command and action managers

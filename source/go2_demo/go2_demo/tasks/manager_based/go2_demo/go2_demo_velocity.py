@@ -90,6 +90,7 @@ class ObservationsCfg:
     policy: PolicyCfg = PolicyCfg()
     @configclass
     class CriticCfg(ObsGroup):
+        base_lin_vel = ObsTerm(func=mdp.base_lin_vel, noise=Unoise(n_min=-0.1, n_max=0.1), clip=(-100.0, 100.0), scale=1.0)
         base_ang_vel = ObsTerm(func=mdp.base_ang_vel, scale=0.2, clip=(-100, 100), noise=Unoise(n_min=-0.2, n_max=0.2))
         projected_gravity = ObsTerm(func=mdp.projected_gravity, clip=(-100, 100), noise=Unoise(n_min=-0.05, n_max=0.05))
         velocity_commands = ObsTerm(func=mdp.generated_commands, clip=(-100, 100), params={"command_name": "base_velocity"})
@@ -107,7 +108,15 @@ class ObservationsCfg:
 @configclass
 class ActionsCfg:
     JointPositionAction = mdp.JointPositionActionCfg(
-        asset_name="robot", joint_names=[".*"], scale=0.25, use_default_offset=True, clip={".*": (-100.0, 100.0)}
+        asset_name="robot",
+        joint_names=[".*"],
+        scale={
+            ".*_hip_joint": 0.125,
+            ".*_thigh_joint": 0.25,
+            ".*_calf_joint": 0.25,
+        },
+        use_default_offset=True,
+        clip={".*": (-100.0, 100.0)},
     )
 
 @configclass
@@ -119,7 +128,7 @@ class CommandsCfg:
         rel_standing_envs=0.02,
         debug_vis=True,
         ranges=mdp.UniformLevelVelocityCommandCfg.Ranges(
-            lin_vel_x=(0.2, 6.0), lin_vel_y=(0.0, 0.0), ang_vel_z=(-0.1, 0.1)
+            lin_vel_x=(0.2, 1.2), lin_vel_y=(0.0, 0.0), ang_vel_z=(-1.0, 1.0)
         ),
         limit_ranges=mdp.UniformLevelVelocityCommandCfg.Ranges(
             lin_vel_x=(0.2, 6.0), lin_vel_y=(-0.3, 0.3), ang_vel_z=(-1.0, 1.0)
@@ -129,14 +138,14 @@ class CommandsCfg:
 @configclass
 class RewardsCfg:
     track_lin_vel_xy = RewTerm(
-        func=mdp.track_lin_vel_xy_exp, weight=3.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
+        func=mdp.track_lin_vel_xy_exp, weight=1.0, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
     )
     track_ang_vel_z = RewTerm(
-        func=mdp.track_ang_vel_z_exp, weight=1.5, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
+        func=mdp.track_ang_vel_z_exp, weight=0.5, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
     )
     energy_new_actual = RewTerm(
         func=mdp.energy_new_actual,
-        weight=0.5,
+        weight=0.8,
         params={
                 "asset_cfg": SceneEntityCfg("robot"),
                 # 这个数值是论文里面给的
@@ -149,6 +158,7 @@ class RewardsCfg:
     base_linear_velocity = RewTerm(func=mdp.lin_vel_z_l2, weight=-0.05)
     base_angular_velocity = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.001)
     flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=-5.0)
+
     # 惩罚关节输出力矩过大
     joint_torques = RewTerm(func=mdp.joint_torques_l2, weight=-1e-4)
     # 惩罚关节速度
@@ -156,7 +166,7 @@ class RewardsCfg:
     # 惩罚关节加速度
     joint_acc = RewTerm(func=mdp.joint_acc_l2, weight=-2.5e-7)
     # 惩罚相邻时刻动作变化过大
-    action_rate = RewTerm(func=mdp.action_rate_l2, weight=-6.25e-3)
+    action_rate = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
     feet_slip = RewTerm(
         func=mdp.feet_slip,
         weight=-0.04,
@@ -172,7 +182,16 @@ class RewardsCfg:
         weight=-5.0,
         params={
             "threshold": 1,
-            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=["Head_.*", ".*_hip", ".*_thigh", ".*_calf"]),
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=[".*_thigh", ".*_calf"]),
+        },
+    )
+    base_height = RewTerm(
+        func=mdp.base_height_l2,
+        weight=-30.0,
+        params={
+            "target_height": 0.3,
+            "asset_cfg": SceneEntityCfg("robot"),
+            "sensor_cfg": SceneEntityCfg("height_scanner"),
         },
     )
     
@@ -208,9 +227,10 @@ class EventCfg:
 
 @configclass
 class CurriculumCfg:
-    lin_vel_cmd_levels = CurrTerm(
-        func=mdp.lin_vel_cmd_levels
-    )
+    pass
+    # lin_vel_cmd_levels = CurrTerm(
+    #     func=mdp.lin_vel_cmd_levels
+    # )
 
 @configclass
 class GO2RobotDemoEnv(ManagerBasedRLEnvCfg):
@@ -225,7 +245,7 @@ class GO2RobotDemoEnv(ManagerBasedRLEnvCfg):
     rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
     events: EventCfg = EventCfg()
-    curriculum: CurriculumCfg = CurriculumCfg()
+    # curriculum: CurriculumCfg = CurriculumCfg()
 
     def __post_init__(self):
         """Post initialization."""
