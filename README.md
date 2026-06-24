@@ -1,4 +1,4 @@
-# Template for Isaac Lab Projects
+# AER-Adaptive-gait
 
 ## Overview
 
