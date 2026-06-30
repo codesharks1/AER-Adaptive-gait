@@ -1,135 +1,93 @@
-# AER-Adaptive-gait
+# AER Adaptive Gait for Unitree Go2
 
-## Overview
+Isaac Lab implementation of adaptive, energy-regularized quadruped locomotion, including rough-terrain teacher training and recurrent teacher-student policy distillation.
 
-This project/repository serves as a template for building projects or extensions based on Isaac Lab.
-It allows you to develop in an isolated environment, outside of the core Isaac Lab repository.
+The released pipeline contains three stages:
 
-**Key Features:**
+1. Train a feed-forward PPO policy on flat terrain.
+2. Continue training the same policy as a privileged teacher on curriculum-generated rough terrain.
+3. Distill the teacher into a recurrent student that does not observe base linear velocity or the terrain height scanner.
 
-- `Isolation` Work outside the core Isaac Lab repository, ensuring that your development efforts remain self-contained.
-- `Flexibility` This template is set up to allow your code to be run as an extension in Omniverse.
+## Policy Structure
 
-**Keywords:** extension, template, isaaclab
+The teacher receives a 247-dimensional observation containing proprioception, base linear velocity, and a 187-dimensional height scan. The deployable student receives 57-dimensional proprioception and uses a GRU to infer hidden terrain and velocity information from observation history:
+
+```text
+Teacher: 247 observations -> MLP [512, 256, 128] -> 12 actions
+Student:  57 observations -> GRU(247) -> MLP [512, 256, 128] -> 12 actions
+```
+
+Distillation minimizes a Huber imitation loss between the teacher and student actions. An optional recurrent PPO stage can fine-tune the distilled student using environment rewards.
 
 ## Installation
 
-- Install Isaac Lab by following the [installation guide](https://isaac-sim.github.io/IsaacLab/main/source/setup/installation/index.html).
-  We recommend using the conda or uv installation as it simplifies calling Python scripts from the terminal.
-
-- Clone or copy this project/repository separately from the Isaac Lab installation (i.e. outside the `IsaacLab` directory):
-
-- Using a python interpreter that has Isaac Lab installed, install the library in editable mode using:
-
-    ```bash
-    # use 'PATH_TO_isaaclab.sh|bat -p' instead of 'python' if Isaac Lab is not installed in Python venv or conda
-    python -m pip install -e source/go2_demo
-
-- Verify that the extension is correctly installed by:
-
-    - Listing the available tasks:
-
-        Note: It the task name changes, it may be necessary to update the search pattern `"Template-"`
-        (in the `scripts/list_envs.py` file) so that it can be listed.
-
-        ```bash
-        # use 'FULL_PATH_TO_isaaclab.sh|bat -p' instead of 'python' if Isaac Lab is not installed in Python venv or conda
-        python scripts/list_envs.py
-        ```
-
-    - Running a task:
-
-        ```bash
-        # use 'FULL_PATH_TO_isaaclab.sh|bat -p' instead of 'python' if Isaac Lab is not installed in Python venv or conda
-        python scripts/<RL_LIBRARY>/train.py --task=<TASK_NAME>
-        ```
-
-    - Running a task with dummy agents:
-
-        These include dummy agents that output zero or random agents. They are useful to ensure that the environments are configured correctly.
-
-        - Zero-action agent
-
-            ```bash
-            # use 'FULL_PATH_TO_isaaclab.sh|bat -p' instead of 'python' if Isaac Lab is not installed in Python venv or conda
-            python scripts/zero_agent.py --task=<TASK_NAME>
-            ```
-        - Random-action agent
-
-            ```bash
-            # use 'FULL_PATH_TO_isaaclab.sh|bat -p' instead of 'python' if Isaac Lab is not installed in Python venv or conda
-            python scripts/random_agent.py --task=<TASK_NAME>
-            ```
-
-### Set up IDE (Optional)
-
-To setup the IDE, please follow these instructions:
-
-- Run VSCode Tasks, by pressing `Ctrl+Shift+P`, selecting `Tasks: Run Task` and running the `setup_python_env` in the drop down menu.
-  When running this task, you will be prompted to add the absolute path to your Isaac Sim installation.
-
-If everything executes correctly, it should create a file .python.env in the `.vscode` directory.
-The file contains the python paths to all the extensions provided by Isaac Sim and Omniverse.
-This helps in indexing all the python modules for intelligent suggestions while writing code.
-
-### Setup as Omniverse Extension (Optional)
-
-We provide an example UI extension that will load upon enabling your extension defined in `source/go2_demo/go2_demo/ui_extension_example.py`.
-
-To enable your extension, follow these steps:
-
-1. **Add the search path of this project/repository** to the extension manager:
-    - Navigate to the extension manager using `Window` -> `Extensions`.
-    - Click on the **Hamburger Icon**, then go to `Settings`.
-    - In the `Extension Search Paths`, enter the absolute path to the `source` directory of this project/repository.
-    - If not already present, in the `Extension Search Paths`, enter the path that leads to Isaac Lab's extension directory directory (`IsaacLab/source`)
-    - Click on the **Hamburger Icon**, then click `Refresh`.
-
-2. **Search and enable your extension**:
-    - Find your extension under the `Third Party` category.
-    - Toggle it to enable your extension.
-
-## Code formatting
-
-We have a pre-commit template to automatically format your code.
-To install pre-commit:
+Install Isaac Lab and `rsl-rl-lib>=3.0.1`, then install this extension from the repository root:
 
 ```bash
-pip install pre-commit
+python -m pip install -e source/go2_demo
+python scripts/list_envs.py
 ```
 
-Then you can run pre-commit with:
+The repository includes the local Unitree Go2 USD files used by `unitree.py`; no machine-specific model path is required.
+
+## Released Checkpoints
+
+| File | Role | Training source |
+| --- | --- | --- |
+| `checkpoints/flat_pretrain.pt` | PPO flat-terrain initialization | `2026-06-11_13-12-36/model_1999.pt` |
+| `checkpoints/rough_terrain_teacher.pt` | PPO privileged rough-terrain teacher | `2026-06-14_19-01-45/model_4998.pt` |
+| `checkpoints/distilled_student.pt` | Recurrent teacher-student distillation result | `2026-06-15_16-18-47/model_2999.pt` |
+
+The original `agent.yaml` and `env.yaml` files are stored under `checkpoints/training_configs/`.
+
+## Play
+
+Play the rough-terrain teacher:
 
 ```bash
-pre-commit run --all-files
+python scripts/rsl_rl/play.py --task Go2-velocity-v0 --num_envs 40 --checkpoint checkpoints/rough_terrain_teacher.pt
 ```
 
-## Troubleshooting
+Play the distilled recurrent student:
 
-### Pylance Missing Indexing of Extensions
-
-In some VsCode versions, the indexing of part of the extensions is missing.
-In this case, add the path to your extension in `.vscode/settings.json` under the key `"python.analysis.extraPaths"`.
-
-```json
-{
-    "python.analysis.extraPaths": [
-        "<path-to-ext-repo>/source/go2_demo"
-    ]
-}
+```bash
+python scripts/rsl_rl/play.py --task Go2-velocity-Distill-v0 --num_envs 40 --checkpoint checkpoints/distilled_student.pt
 ```
 
-### Pylance Crash
+Add `--video --video_length 500` to either command to record a rollout.
 
-If you encounter a crash in `pylance`, it is probable that too many files are indexed and you run out of memory.
-A possible solution is to exclude some of omniverse packages that are not used in your project.
-To do so, modify `.vscode/settings.json` and comment out packages under the key `"python.analysis.extraPaths"`
-Some examples of packages that can likely be excluded are:
+## Train
 
-```json
-"<path-to-isaac-sim>/extscache/omni.anim.*"         // Animation packages
-"<path-to-isaac-sim>/extscache/omni.kit.*"          // Kit UI tools
-"<path-to-isaac-sim>/extscache/omni.graph.*"        // Graph UI tools
-"<path-to-isaac-sim>/extscache/omni.services.*"     // Services tools
-...
+Train the PPO teacher task from scratch:
+
+```bash
+python scripts/rsl_rl/train.py --task Go2-velocity-v0 --num_envs 400 --max_iterations 5000 --headless --video
 ```
+
+Distill the released teacher:
+
+```bash
+python scripts/rsl_rl/train.py --task Go2-velocity-Distill-v0 --num_envs 400 --max_iterations 3000 --checkpoint checkpoints/rough_terrain_teacher.pt --headless --video
+```
+
+Fine-tune the released student with recurrent PPO:
+
+```bash
+python scripts/rsl_rl/train.py --task Go2-velocity-StudentFinetune-v0 --num_envs 400 --max_iterations 1000 --resume --checkpoint checkpoints/distilled_student.pt --headless --video
+```
+
+The fine-tuning entry point maps the distillation checkpoint keys `memory_s` and `student` to the recurrent PPO keys `memory_a` and `actor`. The PPO critic is initialized separately and learned from rewards.
+
+## Main Files
+
+- `go2_demo_velocity.py`: terrain generator, observations, rewards, commands, events, and curriculum configuration.
+- `aer_env.py`: adaptive energy reward aggregation.
+- `agents/rsl_rl_ppo_cfg.py`: PPO, distillation, and recurrent student fine-tuning configurations.
+- `scripts/rsl_rl/train.py`: runner selection and distilled-student checkpoint conversion for PPO fine-tuning.
+- `checkpoints/README.md`: checkpoint architecture, provenance, and integrity hashes.
+
+## Notes
+
+- The rough-terrain teacher was initialized from the released flat-terrain checkpoint.
+- The student excludes `base_lin_vel` and `height_scanner`; its GRU uses observation history to estimate the missing information implicitly.
+- Training remains stochastic even with a fixed seed because GPU simulation and optimization can introduce nondeterminism.

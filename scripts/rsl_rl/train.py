@@ -91,6 +91,7 @@ from isaaclab.envs import (
     ManagerBasedRLEnvCfg,
     multi_agent_to_single_agent,
 )
+from isaaclab.utils.assets import retrieve_file_path
 from isaaclab.utils.dict import print_dict
 from isaaclab.utils.io import dump_yaml
 
@@ -109,6 +110,65 @@ torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 torch.backends.cudnn.deterministic = False
 torch.backends.cudnn.benchmark = False
+
+
+def _maybe_create_student_finetune_checkpoint(resume_path: str, runner: OnPolicyRunner, log_dir: str) -> tuple[str, bool]:
+    """Adapt a distillation checkpoint for recurrent PPO student fine-tuning.
+
+    Distillation checkpoints store the deployable policy as ``memory_s`` and ``student``.
+    Recurrent PPO stores the actor as ``memory_a`` and ``actor``. For student fine-tuning,
+    initialize the PPO actor from the distilled student and keep the PPO critic randomly
+    initialized so it can be learned from rewards.
+    """
+    loaded_dict = torch.load(resume_path, weights_only=False, map_location="cpu")
+    source_state = loaded_dict.get("model_state_dict", {})
+    has_distilled_student = any(key.startswith("memory_s.") for key in source_state) and any(
+        key.startswith("student.") for key in source_state
+    )
+    target_state = runner.alg.policy.state_dict()
+    expects_recurrent_actor = any(key.startswith("memory_a.") for key in target_state) and any(
+        key.startswith("actor.") for key in target_state
+    )
+    if not (has_distilled_student and expects_recurrent_actor):
+        return resume_path, True
+
+    print("[INFO]: Detected distilled student checkpoint; initializing recurrent PPO actor from student weights.")
+
+    adapted_state = {key: value.clone() for key, value in target_state.items()}
+    prefix_pairs = (("memory_s.", "memory_a."), ("student.", "actor."))
+    for source_prefix, target_prefix in prefix_pairs:
+        for source_key, source_value in source_state.items():
+            if not source_key.startswith(source_prefix):
+                continue
+            target_key = target_prefix + source_key[len(source_prefix) :]
+            if target_key not in adapted_state:
+                raise KeyError(f"Converted key is not present in PPO policy: {target_key}")
+            if adapted_state[target_key].shape != source_value.shape:
+                raise ValueError(
+                    f"Shape mismatch for {target_key}: PPO {tuple(adapted_state[target_key].shape)} vs "
+                    f"distilled {tuple(source_value.shape)}"
+                )
+            adapted_state[target_key] = source_value.clone()
+
+    for std_key in ("std", "log_std"):
+        if std_key in source_state and std_key in adapted_state and source_state[std_key].shape == adapted_state[std_key].shape:
+            adapted_state[std_key] = source_state[std_key].clone()
+
+    os.makedirs(log_dir, exist_ok=True)
+    adapted_path = os.path.join(log_dir, "student_finetune_init_from_distill.pt")
+    torch.save(
+        {
+            "model_state_dict": adapted_state,
+            "iter": 0,
+            "infos": {
+                "source_distillation_checkpoint": resume_path,
+                "note": "PPO actor initialized from distilled student; PPO critic initialized from current policy.",
+            },
+        },
+        adapted_path,
+    )
+    print(f"[INFO]: Wrote adapted student fine-tuning checkpoint to: {adapted_path}")
+    return adapted_path, False
 
 
 @hydra_task_config(args_cli.task, args_cli.agent)
@@ -175,7 +235,11 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     # save resume path before creating a new log_dir
     if agent_cfg.resume or agent_cfg.algorithm.class_name == "Distillation":
-        resume_path = get_checkpoint_path(log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint)
+        checkpoint_path = os.path.abspath(os.path.expanduser(agent_cfg.load_checkpoint))
+        if os.path.isfile(checkpoint_path):
+            resume_path = retrieve_file_path(checkpoint_path)
+        else:
+            resume_path = get_checkpoint_path(log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint)
 
     # wrap for video recording
     if args_cli.video:
@@ -207,7 +271,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     if agent_cfg.resume or agent_cfg.algorithm.class_name == "Distillation":
         print(f"[INFO]: Loading model checkpoint from: {resume_path}")
         # load previously trained model
-        runner.load(resume_path)
+        load_optimizer = True
+        if agent_cfg.class_name == "OnPolicyRunner":
+            resume_path, load_optimizer = _maybe_create_student_finetune_checkpoint(resume_path, runner, log_dir)
+        runner.load(resume_path, load_optimizer=load_optimizer)
 
     # dump the configuration into log-directory
     dump_yaml(os.path.join(log_dir, "params", "env.yaml"), env_cfg)

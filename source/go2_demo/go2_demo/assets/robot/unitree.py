@@ -1,11 +1,10 @@
 import os
 
 import isaaclab.sim as sim_utils
-from isaaclab.actuators import IdealPDActuatorCfg, ImplicitActuatorCfg, DCMotorCfg
+from isaaclab.actuators import DCMotorCfg
 from isaaclab.assets.articulation import ArticulationCfg
-from isaaclab.utils import configclass
 
-UNITREE_MODEL_DIR = "D:/RobotProject/go2_demo/source/go2_demo/go2_demo/assets/robot/unitree_model"
+UNITREE_MODEL_DIR = os.path.join(os.path.dirname(__file__), "go2_model")
 
 UNITREE_GO2_CFG = ArticulationCfg(
     spawn=sim_utils.UsdFileCfg(

@@ -61,6 +61,10 @@ _build
 # Pre-Trained Checkpoints
 /.pretrained_checkpoints/
 
+# This project ships the local Go2 USD required by the relative asset path.
+source/go2_demo/go2_demo/assets/robot/unitree_model/
+!source/go2_demo/go2_demo/assets/robot/go2_model/Go2/**/*.usd
+
 # Teleop Recorded Dataset
 /datasets/
 

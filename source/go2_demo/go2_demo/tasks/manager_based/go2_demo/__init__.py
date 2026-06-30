@@ -31,3 +31,23 @@ gym.register(
         "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:PPORunnerCfg",
     },
 )
+
+gym.register(
+    id="Go2-velocity-Distill-v0",
+    entry_point=f"{__name__}.aer_env:AERManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_demo_velocity:GO2RobotDemoEnv",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:DistillationRunnerCfg",
+    },
+)
+
+gym.register(
+    id="Go2-velocity-StudentFinetune-v0",
+    entry_point=f"{__name__}.aer_env:AERManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_demo_velocity:GO2RobotDemoEnv",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:StudentFinetuneRunnerCfg",
+    },
+)

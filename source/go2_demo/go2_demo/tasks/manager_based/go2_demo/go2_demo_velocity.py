@@ -1,6 +1,7 @@
 import math
 
 import isaaclab.sim as sim_utils
+import isaaclab.terrains as terrain_gen
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg
 from isaaclab.envs import ManagerBasedRLEnvCfg
 from isaaclab.managers import CurriculumTermCfg as CurrTerm
@@ -19,18 +20,105 @@ from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
 from go2_demo.assets.robot.unitree import UNITREE_GO2_CFG as RobotCFG
 from go2_demo.tasks.manager_based.go2_demo import mdp
+
+COBBLESTONE_ROAD_CFG = terrain_gen.TerrainGeneratorCfg(
+    size=(8.0, 8.0),
+    border_width=20.0,
+    num_rows=10,
+    num_cols=20,
+    horizontal_scale=0.1,
+    vertical_scale=0.005,
+    slope_threshold=None,
+    difficulty_range=(0.0, 1.0),
+    use_cache=False,
+    sub_terrains={
+        "flat": terrain_gen.MeshPlaneTerrainCfg(proportion=0.20),
+        # 原项目 smooth slope 共 10%，内部包含正反坡
+        "smooth_slope": terrain_gen.HfPyramidSlopedTerrainCfg(
+            proportion=0.05,
+            slope_range=(0.0, 0.04),
+            platform_width=3.0,
+            border_width=0.25,
+        ),
+        "smooth_slope_inv": terrain_gen.HfInvertedPyramidSlopedTerrainCfg(
+            proportion=0.05,
+            slope_range=(0.0, 0.04),
+            platform_width=3.0,
+            border_width=0.25,
+        ),
+
+        # 近似原项目 rough slope
+        # 原项目实际是 slope + random rough 的叠加，内置配置无法直接组合
+        "random_rough": terrain_gen.HfRandomUniformTerrainCfg(
+            proportion=0.15,
+            noise_range=(0.0, 0.05),
+            noise_step=0.005,
+            downsampled_scale=0.2,
+            border_width=0.25,
+        ),
+
+        # 原项目楼梯比例：35% / 25%
+        "pyramid_stairs": terrain_gen.MeshPyramidStairsTerrainCfg(
+            proportion=0.20,
+            step_height_range=(0.05, 0.07),
+            step_width=0.31,
+            platform_width=3.0,
+            border_width=1.0,
+            holes=False,
+        ),
+        "pyramid_stairs_inv": terrain_gen.MeshInvertedPyramidStairsTerrainCfg(
+            proportion=0.15,
+            step_height_range=(0.05, 0.07),
+            step_width=0.31,
+            platform_width=3.0,
+            border_width=1.0,
+            holes=False,
+        ),
+
+        # 对齐原项目 discrete obstacles，而不是密集砖缝 boxes
+        "discrete_obstacles": terrain_gen.HfDiscreteObstaclesTerrainCfg(
+            proportion=0.20,
+            obstacle_height_mode="choice",
+            obstacle_width_range=(1.0, 2.0),
+            obstacle_height_range=(0.05, 0.07),
+            num_obstacles=20,
+            platform_width=3.0,
+            border_width=0.25,
+        ),
+    },
+)
 @configclass
 class RobotSceneCfg(InteractiveSceneCfg):
     # 超平坦地形
+    # terrain = TerrainImporterCfg(
+    #     prim_path="/World/ground",
+    #     terrain_type="plane",
+    #     collision_group=-1,
+    #     physics_material=sim_utils.RigidBodyMaterialCfg(
+    #         friction_combine_mode="multiply",
+    #         restitution_combine_mode="multiply",
+    #         static_friction=1.0,
+    #         dynamic_friction=1.0,
+    #     ),
+    #     debug_vis=False,
+    # )
     terrain = TerrainImporterCfg(
         prim_path="/World/ground",
-        terrain_type="plane",
+        terrain_type="generator",  # "plane", "generator"
+        terrain_generator=COBBLESTONE_ROAD_CFG,  # None, ROUGH_TERRAINS_CFG
+        max_init_terrain_level=0,
+        use_terrain_origins = True,
         collision_group=-1,
         physics_material=sim_utils.RigidBodyMaterialCfg(
             friction_combine_mode="multiply",
             restitution_combine_mode="multiply",
             static_friction=1.0,
             dynamic_friction=1.0,
+        ),
+        visual_material=sim_utils.MdlFileCfg(
+            mdl_path=f"{ISAACLAB_NUCLEUS_DIR}/Materials/TilesMarbleSpiderWhiteBrickBondHoned/TilesMarbleSpiderWhiteBrickBondHoned.mdl",
+            project_uvw=True,
+            texture_scale=(0.25, 0.25),
         ),
         debug_vis=False,
     )
@@ -88,6 +176,47 @@ class ObservationsCfg:
             self.enable_corruption = True
             self.concatenate_terms = True
     policy: PolicyCfg = PolicyCfg()
+
+    @configclass
+    class StudentCfg(ObsGroup):
+        """Deployable observations used by the recurrent student policy."""
+
+        base_ang_vel = ObsTerm(
+            func=mdp.base_ang_vel,
+            scale=0.2,
+            clip=(-100, 100),
+            noise=Unoise(n_min=-0.2, n_max=0.2),
+        )
+        projected_gravity = ObsTerm(
+            func=mdp.projected_gravity,
+            clip=(-100, 100),
+            noise=Unoise(n_min=-0.05, n_max=0.05),
+        )
+        velocity_commands = ObsTerm(
+            func=mdp.generated_commands,
+            clip=(-100, 100),
+            params={"command_name": "base_velocity"},
+        )
+        joint_pos_rel = ObsTerm(
+            func=mdp.joint_pos_rel,
+            clip=(-100, 100),
+            noise=Unoise(n_min=-0.01, n_max=0.01),
+        )
+        joint_vel_rel = ObsTerm(
+            func=mdp.joint_vel_rel,
+            scale=0.05,
+            clip=(-100, 100),
+            noise=Unoise(n_min=-1.5, n_max=1.5),
+        )
+        joint_effort = ObsTerm(func=mdp.joint_effort, scale=0.01, clip=(-100, 100))
+        last_action = ObsTerm(func=mdp.last_action, clip=(-100, 100))
+
+        def __post_init__(self):
+            self.enable_corruption = True
+            self.concatenate_terms = True
+
+    student: StudentCfg = StudentCfg()
+
     @configclass
     class CriticCfg(ObsGroup):
         base_lin_vel = ObsTerm(func=mdp.base_lin_vel, noise=Unoise(n_min=-0.1, n_max=0.1), clip=(-100.0, 100.0), scale=1.0)
@@ -128,7 +257,7 @@ class CommandsCfg:
         rel_standing_envs=0.02,
         debug_vis=True,
         ranges=mdp.UniformLevelVelocityCommandCfg.Ranges(
-            lin_vel_x=(0.2, 1.2), lin_vel_y=(0.0, 0.0), ang_vel_z=(-1.0, 1.0)
+            lin_vel_x=(0.2, 1.2), lin_vel_y=(0.0, 0.0), ang_vel_z=(0.0, 0.0)
         ),
         limit_ranges=mdp.UniformLevelVelocityCommandCfg.Ranges(
             lin_vel_x=(0.2, 6.0), lin_vel_y=(-0.3, 0.3), ang_vel_z=(-1.0, 1.0)
@@ -227,10 +356,11 @@ class EventCfg:
 
 @configclass
 class CurriculumCfg:
-    pass
     # lin_vel_cmd_levels = CurrTerm(
     #     func=mdp.lin_vel_cmd_levels
     # )
+    terrain_levels = CurrTerm(func=mdp.terrain_levels_vel)
+
 
 @configclass
 class GO2RobotDemoEnv(ManagerBasedRLEnvCfg):
@@ -245,7 +375,7 @@ class GO2RobotDemoEnv(ManagerBasedRLEnvCfg):
     rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
     events: EventCfg = EventCfg()
-    # curriculum: CurriculumCfg = CurriculumCfg()
+    curriculum: CurriculumCfg = CurriculumCfg()
 
     def __post_init__(self):
         """Post initialization."""
