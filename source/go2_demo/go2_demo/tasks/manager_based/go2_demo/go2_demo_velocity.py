@@ -257,7 +257,7 @@ class CommandsCfg:
         rel_standing_envs=0.02,
         debug_vis=True,
         ranges=mdp.UniformLevelVelocityCommandCfg.Ranges(
-            lin_vel_x=(0.2, 1.2), lin_vel_y=(0.0, 0.0), ang_vel_z=(0.0, 0.0)
+            lin_vel_x=(0.2, 1.2), lin_vel_y=(0.0, 0.0), ang_vel_z=(-1.0, 1.0)
         ),
         limit_ranges=mdp.UniformLevelVelocityCommandCfg.Ranges(
             lin_vel_x=(0.2, 6.0), lin_vel_y=(-0.3, 0.3), ang_vel_z=(-1.0, 1.0)
@@ -283,7 +283,7 @@ class RewardsCfg:
                 "clip_lin": 0.2,
                 "clip_ang": 0.2,
             },
-    )   
+    )
     base_linear_velocity = RewTerm(func=mdp.lin_vel_z_l2, weight=-0.05)
     base_angular_velocity = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.001)
     flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=-5.0)
@@ -296,6 +296,7 @@ class RewardsCfg:
     joint_acc = RewTerm(func=mdp.joint_acc_l2, weight=-2.5e-7)
     # 惩罚相邻时刻动作变化过大
     action_rate = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
+    action_smoothness_2 = RewTerm(func=mdp.action_smoothness_2, weight=-0.01)
     feet_slip = RewTerm(
         func=mdp.feet_slip,
         weight=-0.04,
@@ -323,7 +324,7 @@ class RewardsCfg:
             "sensor_cfg": SceneEntityCfg("height_scanner"),
         },
     )
-    
+
 
 @configclass
 class TerminationsCfg:
@@ -334,7 +335,7 @@ class TerminationsCfg:
         func=mdp.illegal_contact,
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="base"), "threshold": 1.0},
     )
-    # 机器人倾斜太厉害，超过配置的阈值0.8 
+    # 机器人倾斜太厉害，超过配置的阈值0.8
     bad_orientation = DoneTerm(func=mdp.bad_orientation, params={"limit_angle": 0.8})
 @configclass
 class EventCfg:
@@ -353,6 +354,60 @@ class EventCfg:
             },
         },
     )
+    foot_material = EventTerm(
+            func=mdp.randomize_rigid_body_material,
+            mode="startup",
+            params={
+                "asset_cfg": SceneEntityCfg("robot", body_names=".*_foot"),
+                "static_friction_range": (0.6, 1.2),
+                "dynamic_friction_range": (0.6, 1.2),
+                "restitution_range": (0.0, 0.05),
+                "num_buckets": 64,
+            },
+        )
+
+    base_mass = EventTerm(
+            func=mdp.randomize_rigid_body_mass,
+            mode="startup",
+            params={
+                "asset_cfg": SceneEntityCfg("robot", body_names="base"),
+                "mass_distribution_params": (-1.0, 1.0),
+                "operation": "add",
+                "recompute_inertia": True,
+            },
+        )
+
+    base_com = EventTerm(
+            func=mdp.randomize_rigid_body_com,
+            mode="startup",
+            params={
+                "asset_cfg": SceneEntityCfg("robot", body_names="base"),
+                "com_range": {
+                    "x": (-0.02, 0.02),
+                    "y": (-0.015, 0.015),
+                    "z": (-0.01, 0.01),
+                },
+            },
+        )
+
+    actuator_gains = EventTerm(
+            func=mdp.randomize_actuator_gains,
+            mode="startup",
+            params={
+                "asset_cfg": SceneEntityCfg("robot", joint_names=".*"),
+                "stiffness_distribution_params": (0.9, 1.1),
+                "damping_distribution_params": (0.9, 1.1),
+                "operation": "scale",
+            },
+        )
+    reset_robot_joints = EventTerm(
+            func=mdp.reset_joints_by_scale,
+            mode="reset",
+            params={
+                "position_range": (1.0, 1.0),
+                "velocity_range": (-0.5, 0.5),
+            },
+        )
 
 @configclass
 class CurriculumCfg:

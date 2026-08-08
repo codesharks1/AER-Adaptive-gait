@@ -1,16 +1,17 @@
-# Copyright (c) 2022-2026, The Isaac Lab Project Developers (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).
+﻿# Copyright (c) 2022-2026, The Isaac Lab Project Developers (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).
 # All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 import torch
 
 from isaaclab.assets import Articulation
-from isaaclab.managers import SceneEntityCfg
+from isaaclab.managers import ManagerTermBase, RewardTermCfg, SceneEntityCfg
 from isaaclab.sensors import ContactSensor
 from isaaclab.utils.math import wrap_to_pi
 
@@ -46,6 +47,35 @@ def energy_new_actual(
         + sigma_ang * torch.clamp(torch.abs(base_ang_vel_z), min=clip_ang)
     )
     return torch.exp(-energy / denom)
+
+
+class action_smoothness_2(ManagerTermBase):
+    """Penalize the second-order finite difference of policy actions."""
+
+    def __init__(self, cfg: RewardTermCfg, env: ManagerBasedRLEnv):
+        super().__init__(cfg, env)
+        self._prev_prev_action = torch.zeros_like(env.action_manager.action)
+        self._history_length = torch.zeros(env.num_envs, dtype=torch.long, device=env.device)
+
+    def reset(self, env_ids: Sequence[int] | None = None) -> None:
+        if env_ids is None:
+            env_ids = slice(None)
+        self._prev_prev_action[env_ids] = 0.0
+        self._history_length[env_ids] = 0
+
+    def __call__(self, env: ManagerBasedRLEnv) -> torch.Tensor:
+        second_difference = (
+            env.action_manager.action
+            - 2.0 * env.action_manager.prev_action
+            + self._prev_prev_action
+        )
+        penalty = torch.sum(torch.square(second_difference), dim=1)
+        valid_history = self._history_length >= 2
+
+        self._prev_prev_action.copy_(env.action_manager.prev_action)
+        self._history_length.add_(1).clamp_(max=2)
+
+        return penalty * valid_history.float()
 
 
 def feet_slip(

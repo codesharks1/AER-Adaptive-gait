@@ -1,7 +1,7 @@
 seed: 42
 device: cuda:0
 num_steps_per_env: 24
-max_iterations: 2000
+max_iterations: 1000
 empirical_normalization: null
 obs_groups: {}
 clip_actions: null
@@ -11,9 +11,9 @@ run_name: ''
 logger: tensorboard
 neptune_project: isaaclab
 wandb_project: isaaclab
-resume: false
-load_run: .*
-load_checkpoint: model_.*.pt
+resume: true
+load_run: 2026-07-28_20-20-39
+load_checkpoint: model_1999.pt
 class_name: OnPolicyRunner
 policy:
   class_name: ActorCritic
@@ -47,4 +47,8 @@ algorithm:
   clip_param: 0.2
   normalize_advantage_per_mini_batch: false
   rnd_cfg: null
-  symmetry_cfg: null
+  symmetry_cfg:
+    use_data_augmentation: true
+    use_mirror_loss: false
+    data_augmentation_func: go2_demo.tasks.manager_based.go2_demo.mdp.symmetry:compute_symmetric_states
+    mirror_loss_coeff: 0.0

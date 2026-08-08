@@ -34,6 +34,17 @@ parser.add_argument(
     help="Use the pre-trained checkpoint from Nucleus.",
 )
 parser.add_argument("--real-time", action="store_true", default=False, help="Run in real-time, if possible.")
+parser.add_argument(
+    "--log_foot_touchdowns",
+    action="store_true",
+    help="Log foot touchdown positions relative to the robot base.",
+)
+parser.add_argument(
+    "--touchdown_env",
+    type=int,
+    default=0,
+    help="Environment index used by --log_foot_touchdowns.",
+)
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -78,6 +89,7 @@ from isaaclab_tasks.utils import get_checkpoint_path
 from isaaclab_tasks.utils.hydra import hydra_task_config
 
 import go2_demo.tasks  # noqa: F401
+from foot_touchdown_logger import FootTouchdownLogger
 
 
 @hydra_task_config(args_cli.task, args_cli.agent)
@@ -174,6 +186,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     dt = env.unwrapped.step_dt
 
+    touchdown_logger = None
+    if args_cli.log_foot_touchdowns:
+        touchdown_logger = FootTouchdownLogger(env.unwrapped, args_cli.touchdown_env)
+
     # reset environment
     obs = env.get_observations()
     timestep = 0
@@ -188,8 +204,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             obs, _, dones, _ = env.step(actions)
             # reset recurrent states for episodes that have terminated
             policy_nn.reset(dones)
+        timestep += 1
+        if touchdown_logger is not None:
+            touchdown_logger.update(timestep, dones)
         if args_cli.video:
-            timestep += 1
             # Exit the play loop after recording one video
             if timestep == args_cli.video_length:
                 break
@@ -198,6 +216,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         sleep_time = dt - (time.time() - start_time)
         if args_cli.real_time and sleep_time > 0:
             time.sleep(sleep_time)
+
+    if touchdown_logger is not None:
+        touchdown_logger.print_summary()
 
     # close the simulator
     env.close()

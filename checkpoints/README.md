@@ -1,25 +1,14 @@
-# Checkpoints
+# Released Checkpoints
 
-This directory contains the three checkpoints used by the released training pipeline.
-
-| Checkpoint | Network | Observations | Description |
-| --- | --- | --- | --- |
-| `flat_pretrain.pt` | Feed-forward PPO ActorCritic | 247 | Flat-terrain policy used to initialize rough-terrain training. |
-| `rough_terrain_teacher.pt` | Feed-forward PPO ActorCritic | 247 | Privileged teacher trained with rough-terrain curriculum. |
-| `distilled_student.pt` | StudentTeacherRecurrent | student 57, teacher 247 | GRU student distilled from the rough-terrain teacher. |
-
-The student checkpoint contains both teacher and student modules because it is the native RSL-RL distillation checkpoint. For deployment, use the student branch (`memory_s` and `student`).
-
-## Provenance
-
-| Published file | Original run | Original checkpoint |
+| File | Architecture | Source |
 | --- | --- | --- |
-| `flat_pretrain.pt` | `2026-06-11_13-12-36` | `model_1999.pt` |
-| `rough_terrain_teacher.pt` | `2026-06-14_19-01-45` | `model_4998.pt` |
-| `distilled_student.pt` | `2026-06-15_16-18-47` | `model_2999.pt` |
+| `flat_pretrain.pt` | Feed-forward PPO actor-critic with symmetry augmentation | `2026-07-28_21-31-50/model_2998.pt` |
+| `rough_terrain_teacher.pt` | Privileged feed-forward PPO teacher | `2026-07-29_17-03-20/model_6997.pt` |
+| `distilled_student.pt` | GRU teacher-student distillation checkpoint | `2026-07-29_19-44-17/model_2999.pt` |
+| `distilled_policy.pt` | Exported TorchScript recurrent student | `2026-07-29_19-44-17/exported/policy.pt` |
 
-Each run's saved environment and agent configuration is included in `training_configs/<stage>/`.
+The teacher receives 247 observations. The deployable student receives 57 observations and uses `GRU(57, 247)` followed by an MLP with hidden dimensions `[512, 256, 128]`.
 
-## SHA-256
+Matching Hydra configurations are stored in `training_configs/flat`, `training_configs/teacher`, and `training_configs/student`.
 
-Hashes are generated during publication and recorded in `SHA256SUMS.txt`.
+Expected SHA256 hashes are listed in `SHA256SUMS.txt`.

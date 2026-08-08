@@ -1,83 +1,79 @@
-﻿# Go2 MuJoCo Sim2Sim Scratchpad
+# Go2 MuJoCo Sim2Sim
 
-This folder starts with the smallest possible MuJoCo loop:
+This directory contains a minimal, single-process MuJoCo deployment path for the recurrent Go2 student policy.
 
-1. Load a flat scene XML from `scenes/go2_flat_scene.xml`.
-2. Include Unitree's official Go2 MJCF.
-3. Open MuJoCo's passive viewer.
+## Contents
+
+- `mujoco_minmal/`: official-style minimal MuJoCo XML and Python loop.
+- `urdf_to_mjcf/convert.py`: converts a tree-structured URDF into MJCF.
+- `load_go2_flat.py`: loads the Unitree Go2 MJCF into a flat scene.
+- `run_policy_flat.py`: observation construction, GRU inference, action mapping, PD control, and physics stepping.
+- `scenes/go2_flat_scene.xml`: flat ground.
+- `scenes/go2_stairs_scene.xml`: stair test scene.
 
 ## Setup
 
-```cmd
+```powershell
 pip install mujoco
 ```
 
-Clone Unitree's MuJoCo repository next to this folder:
+Clone Unitree's MuJoCo repository next to the project repository, or pass its path explicitly:
 
-```cmd
-cd /d D:\RobotProject
+```powershell
 git clone https://github.com/unitreerobotics/unitree_mujoco.git
 ```
 
-The loader auto-detects these layouts:
+The scripts search common sibling and nested layouts. Override discovery when needed:
 
-```text
-parent_folder/
-├─ simtosim/
-└─ unitree_mujoco/
+```powershell
+python sim2sim/load_go2_flat.py --unitree-mujoco-dir D:\path\to\unitree_mujoco
 ```
 
-or:
+## Minimal Examples
 
-```text
-simtosim/
-└─ unitree_mujoco/
+```powershell
+python sim2sim/mujoco_minmal/mujoco_min.py
+python sim2sim/load_go2_flat.py
+python sim2sim/load_go2_flat.py --no-viewer --duration 2
 ```
 
-You can also pass the path explicitly:
+Convert a URDF to MJCF:
 
-```cmd
-python load_go2_flat.py --unitree-mujoco-dir D:\path\to\unitree_mujoco
+```powershell
+python sim2sim/urdf_to_mjcf/convert.py --urdf path\to\robot.urdf --output robot.xml
 ```
 
-## Run
+The generated MJCF is a starting point. Actuators, sensors, mesh paths, inertial properties, collision geometry, and control limits still need to be checked.
 
-```cmd
-python load_go2_flat.py
+## Run the Student Policy
+
+From the repository root, run flat ground:
+
+```powershell
+python sim2sim/run_policy_flat.py --policy checkpoints/distilled_policy.pt --command-x 0.3 --command-y 0 --command-yaw 0 --duration 30 --debug --action-clip 10
 ```
 
-Use a different scene:
+Run stairs:
 
-```cmd
-python load_go2_flat.py --scene scenes\go2_flat_scene.xml
+```powershell
+python sim2sim/run_policy_flat.py --scene sim2sim/scenes/go2_stairs_scene.xml --policy checkpoints/distilled_policy.pt --command-x 0.3 --command-y 0 --command-yaw 0 --duration 30 --debug --action-clip 10
 ```
 
-Headless smoke test:
+Turn left or right by changing yaw command:
 
-```cmd
-python load_go2_flat.py --no-viewer --duration 2
+```powershell
+python sim2sim/run_policy_flat.py --policy checkpoints/distilled_policy.pt --command-x 0.3 --command-yaw 0.3 --duration 30 --action-clip 10
+python sim2sim/run_policy_flat.py --policy checkpoints/distilled_policy.pt --command-x 0.3 --command-yaw -0.3 --duration 30 --action-clip 10
 ```
 
-## Next steps
+The viewer shows commanded planar velocity with a blue arrow and measured planar velocity with a green arrow. Use `--hide-velocity-arrows` to disable them.
 
-- Add PD hold control.
-- Read qpos/qvel/IMU and construct IsaacLab student observations.
-- Load the fine-tuned recurrent student policy.
-- Maintain GRU hidden state.
-- Convert policy actions to target joint positions.
+## Interface Alignment
 
-## Run the Exported Student Policy
+The policy uses Isaac Lab joint order while Unitree's MuJoCo actuators use a different order. `run_policy_flat.py` explicitly maps:
 
-Minimal single-thread sim2sim loop:
+- MuJoCo `qpos/qvel` into policy observation order.
+- Policy target joint positions into MuJoCo actuator order.
+- MuJoCo torques back into policy order for the next observation.
 
-```cmd
-python run_policy_flat.py --policy D:\RobotProject\go2_demo\logs\rsl_rl\go2_demo\2026-07-07_20-45-47\exported\policy.pt
-```
-
-Headless smoke test:
-
-```cmd
-python run_policy_flat.py --no-viewer --duration 2 --policy D:\RobotProject\go2_demo\logs\rsl_rl\go2_demo\2026-07-07_20-45-47\exported\policy.pt
-```
-
-The first version assumes IsaacLab policy joint order is `FL, FR, RL, RR` and maps actions into Unitree MuJoCo actuator order `FR, FL, RR, RL`.
+The deployment loop also preserves the training action scale, default joint offsets, PD gains, torque limits, simulation timestep, policy decimation, and recurrent hidden state.

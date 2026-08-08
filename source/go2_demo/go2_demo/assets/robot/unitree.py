@@ -4,7 +4,7 @@ import isaaclab.sim as sim_utils
 from isaaclab.actuators import DCMotorCfg
 from isaaclab.assets.articulation import ArticulationCfg
 
-UNITREE_MODEL_DIR = os.path.join(os.path.dirname(__file__), "go2_model")
+UNITREE_MODEL_DIR = os.path.join(os.path.dirname(__file__), "unitree_model")
 
 UNITREE_GO2_CFG = ArticulationCfg(
     spawn=sim_utils.UsdFileCfg(

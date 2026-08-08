@@ -1,6 +1,6 @@
 <mujoco model="go2 flat scene">
   <!-- 引入机器人本体模型。运行脚本会将占位符替换为实际的 Go2 XML 路径。 -->
-  <include file="{{GO2_XML}}"/>
+  <include file="D:\RobotProject\simtosim\urdf_to_mjcf\robot.xml"/>
 
   <!-- 设置模型的统计中心和显示范围，主要影响查看器的默认取景。 -->
   <statistic center="0 0 0.25" extent="1.2"/>

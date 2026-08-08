@@ -13,7 +13,10 @@ from isaaclab_rl.rsl_rl import (
     RslRlPpoActorCriticCfg,
     RslRlPpoActorCriticRecurrentCfg,
     RslRlPpoAlgorithmCfg,
+    RslRlSymmetryCfg,
 )
+
+from .. import mdp
 
 
 @configclass
@@ -41,6 +44,11 @@ class PPORunnerCfg(RslRlOnPolicyRunnerCfg):
         lam=0.95,
         desired_kl=0.01,
         max_grad_norm=1.0,
+        symmetry_cfg=RslRlSymmetryCfg(
+            use_data_augmentation=True,
+            use_mirror_loss=False,
+            data_augmentation_func=mdp.compute_symmetric_states,
+        ),
     )
 
 

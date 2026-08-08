@@ -1,4 +1,4 @@
-﻿"""Minimal IsaacLab-to-MuJoCo sim2sim runner for the exported Go2 student policy.
+"""Minimal IsaacLab-to-MuJoCo sim2sim runner for the exported Go2 student policy.
 
 This is intentionally a single-thread scratchpad:
 - no Unitree SDK
@@ -22,9 +22,7 @@ import torch
 from load_go2_flat import DEFAULT_SCENE_PATH, find_unitree_go2_dir, prepare_scene_for_mujoco, print_model_summary
 
 
-DEFAULT_POLICY_PATH = Path(
-    r"D:\RobotProject\go2_demo\logs\rsl_rl\go2_demo\2026-07-07_20-45-47\exported\policy.pt"
-)
+DEFAULT_POLICY_PATH = Path(__file__).resolve().parents[1] / "checkpoints" / "distilled_policy.pt"
 
 MUJOCO_QPOS_JOINT_NAMES = [
     "FL_hip_joint", "FL_thigh_joint", "FL_calf_joint",
@@ -62,6 +60,8 @@ ACTION_SCALE_BY_SUFFIX = {
 KP = 25.0
 KD = 0.5
 TORQUE_LIMIT = 23.5
+COMMAND_ARROW_COLOR = np.array([0.1, 0.35, 1.0, 1.0], dtype=np.float32)
+ACTUAL_ARROW_COLOR = np.array([0.1, 0.9, 0.2, 1.0], dtype=np.float32)
 
 
 def action_scale_for_joint(joint_name: str) -> float:
@@ -115,6 +115,55 @@ def quat_rotate_inverse(q_wxyz: np.ndarray, v: np.ndarray) -> np.ndarray:
     """Rotate a world-frame vector into the body frame using a wxyz quaternion."""
     v_quat = np.array([0.0, v[0], v[1], v[2]], dtype=np.float32)
     return quat_mul(quat_mul(quat_conjugate(q_wxyz), v_quat), q_wxyz)[1:]
+
+
+def quat_rotate(q_wxyz: np.ndarray, v: np.ndarray) -> np.ndarray:
+    """Rotate a body-frame vector into the world frame using a wxyz quaternion."""
+    v_quat = np.array([0.0, v[0], v[1], v[2]], dtype=np.float32)
+    return quat_mul(quat_mul(q_wxyz, v_quat), quat_conjugate(q_wxyz))[1:]
+
+
+def add_viewer_arrow(
+    scene: mujoco.MjvScene,
+    start: np.ndarray,
+    end: np.ndarray,
+    color: np.ndarray,
+    width: float = 0.025,
+) -> None:
+    """Append a non-physical arrow to the MuJoCo user scene."""
+    if scene.ngeom >= scene.maxgeom:
+        return
+
+    geom = scene.geoms[scene.ngeom]
+    mujoco.mjv_initGeom(
+        geom,
+        mujoco.mjtGeom.mjGEOM_ARROW,
+        np.zeros(3, dtype=np.float64),
+        np.zeros(3, dtype=np.float64),
+        np.eye(3, dtype=np.float64).reshape(-1),
+        color,
+    )
+    mujoco.mjv_connector(geom, mujoco.mjtGeom.mjGEOM_ARROW, width, start, end)
+    scene.ngeom += 1
+
+
+def update_velocity_arrows(viewer, data: mujoco.MjData, command: np.ndarray, scale: float) -> None:
+    """Draw commanded (blue) and measured (green) planar velocity arrows."""
+    scene = viewer.user_scn
+    scene.ngeom = 0
+
+    base_pos = np.asarray(data.qpos[0:3], dtype=np.float64)
+    base_quat_wxyz = np.asarray(data.qpos[3:7], dtype=np.float32)
+    command_body = np.array([command[0], command[1], 0.0], dtype=np.float32)
+    command_world = quat_rotate(base_quat_wxyz, command_body).astype(np.float64)
+    actual_world = np.array([data.qvel[0], data.qvel[1], 0.0], dtype=np.float64)
+
+    command_start = base_pos + np.array([0.0, 0.0, 0.38])
+    actual_start = base_pos + np.array([0.0, 0.0, 0.31])
+    if np.linalg.norm(command_world[:2]) > 1.0e-6:
+        add_viewer_arrow(scene, command_start, command_start + scale * command_world, COMMAND_ARROW_COLOR)
+    if np.linalg.norm(actual_world[:2]) > 1.0e-6:
+        add_viewer_arrow(scene, actual_start, actual_start + scale * actual_world, ACTUAL_ARROW_COLOR)
 
 
 def reset_robot_to_training_stance(model: mujoco.MjModel, data: mujoco.MjData) -> None:
@@ -210,6 +259,8 @@ def main() -> None:
     parser.add_argument("--hold-only", action="store_true", help="Ignore policy and hold the default standing pose with PD.")
     parser.add_argument("--debug", action="store_true", help="Print one-line diagnostics every 0.5 seconds.")
     parser.add_argument("--obs-debug", action="store_true", help="Print segmented student observations before policy inference.")
+    parser.add_argument("--velocity-arrow-scale", type=float, default=1.0, help="Scale applied to viewer velocity arrows.")
+    parser.add_argument("--hide-velocity-arrows", action="store_true", help="Hide commanded and measured velocity arrows.")
     args = parser.parse_args()
     # 重新解析路径，确保它们是绝对路径
     scene_path = args.scene.resolve()
@@ -218,7 +269,7 @@ def main() -> None:
         raise FileNotFoundError(f"Cannot find exported policy: {policy_path}")
     # 解析关节顺序
     joint_order = build_joint_order(args.policy_joint_order)
-    print(f"[INFO] Policy joint order preset: {args.policy_joint_order}")   
+    print(f"[INFO] Policy joint order preset: {args.policy_joint_order}")
     for index, name in enumerate(joint_order["policy_names"]):
         print(f"  policy[{index:02d}] = {name}")
     # 找到 unitree_mujoco 仓库目录，准备运行时的 MuJoCo 场景 XML
@@ -276,8 +327,8 @@ def main() -> None:
             if args.obs_debug and policy_steps < 5:
                 print_obs_debug(obs, action)
             last_action_policy = np.clip(action, -args.action_clip, args.action_clip)
-        last_torque_policy = apply_pd_control(data, last_action_policy, args.action_clip, joint_order)
         for _ in range(args.decimation):
+            last_torque_policy = apply_pd_control(data, last_action_policy, args.action_clip, joint_order)
             mujoco.mj_step(model, data)
         policy_steps += 1
         if args.debug and policy_steps % max(1, int(0.5 / (args.sim_dt * args.decimation))) == 0:
@@ -305,6 +356,9 @@ def main() -> None:
         while viewer.is_running() and time.time() - start_time < args.duration:
             wall_start = time.time()
             step_policy_and_physics()
+            if not args.hide_velocity_arrows:
+                with viewer.lock():
+                    update_velocity_arrows(viewer, data, command, args.velocity_arrow_scale)
             viewer.sync()
             policy_dt = args.sim_dt * args.decimation
             sleep_time = policy_dt - (time.time() - wall_start)
@@ -314,4 +368,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
