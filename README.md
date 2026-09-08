@@ -56,8 +56,11 @@ The repository contains the local Go2 USD assets required by the relative asset 
 | `checkpoints/rough_terrain_teacher.pt` | Privileged rough-terrain PPO teacher | `2026-07-29_17-03-20/model_6997.pt` |
 | `checkpoints/distilled_student.pt` | Recurrent teacher-student distillation checkpoint | `2026-07-29_19-44-17/model_2999.pt` |
 | `checkpoints/distilled_policy.pt` | Exported TorchScript student for MuJoCo | `2026-07-29_19-44-17/exported/policy.pt` |
+| [`checkpoints/distilled_policy.onnx`](checkpoints/distilled_policy.onnx) | Exported ONNX recurrent student | `2026-07-29_19-44-17/exported/policy.onnx` |
 
 The matching `agent.yaml` and `env.yaml` files are stored under `checkpoints/training_configs/`.
+
+The ONNX export uses explicit GRU hidden-state inputs and outputs. See the [ONNX interface and example](checkpoints/README.md#onnx-inference) before using it. The current `sim2sim/run_policy_flat.py` loads TorchScript `.pt` files, not ONNX files.
 
 ## Play in Isaac Lab
 
